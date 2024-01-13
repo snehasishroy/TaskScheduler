@@ -1,12 +1,8 @@
-package com.snehasishroy;
+package com.snehasishroy.service;
 
 import lombok.Getter;
-import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.curator.framework.CuratorFramework;
-import org.apache.curator.framework.api.BackgroundCallback;
-import org.apache.curator.framework.api.CuratorEvent;
-import org.apache.curator.framework.api.CuratorEventType;
 import org.apache.curator.framework.recipes.cache.ChildData;
 import org.apache.curator.framework.recipes.cache.CuratorCache;
 import org.apache.curator.framework.recipes.cache.CuratorCacheListener;
@@ -15,7 +11,6 @@ import org.apache.curator.framework.recipes.leader.LeaderSelector;
 import org.apache.curator.framework.recipes.leader.LeaderSelectorListener;
 import org.apache.curator.framework.state.ConnectionState;
 import org.apache.zookeeper.CreateMode;
-import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.data.Stat;
 
 import java.io.Closeable;
@@ -26,10 +21,10 @@ import java.util.concurrent.locks.ReentrantLock;
 
 @Slf4j
 @Getter
-public class JobWorker implements LeaderSelectorListener, Closeable {
+public class WorkerService implements LeaderSelectorListener, Closeable {
     public static final String WORKERS_ROOT = "/workers";
     public static final String JOBS_ROOT = "/jobs";
-    public static final String ASSIGNMENT_ROOT = "/assignment";
+    public static final String ASSIGNMENT_ROOT = "/assignments";
     private final String name;
     private final LeaderSelector leaderSelector;
     Lock lock = new ReentrantLock();
@@ -38,10 +33,12 @@ public class JobWorker implements LeaderSelectorListener, Closeable {
     private final CuratorFramework curator;
     private CuratorCache workersCache;
     private CuratorCache jobsCache;
+    private CuratorCache assignmentCache;
     private CuratorCacheListener workersListener;
     private CuratorCacheListener jobsListener;
+    private CuratorCacheListener assignmentListener;
 
-    public JobWorker(CuratorFramework curator, String path, String name) {
+    public WorkerService(CuratorFramework curator, String path, String name) {
         this.name = name;
         this.curator = curator;
         leaderSelector = new LeaderSelector(curator, path, this);
@@ -50,6 +47,7 @@ public class JobWorker implements LeaderSelectorListener, Closeable {
         // leader selection is done in the background so this call to leaderSelector.start() returns immediately
         leaderSelector.start();
         setup();
+        watchAssignmentPath();
     }
 
     // TODO: Handle Reconnected State change, when the workers lose connection to the server, server will delete the ephemeral nodes,
@@ -58,7 +56,7 @@ public class JobWorker implements LeaderSelectorListener, Closeable {
     private void setup() {
         createIfExists(getWorkerPath(), CreateMode.EPHEMERAL);
         createIfExists(getJobsPath(), CreateMode.PERSISTENT);
-        createIfExists(getAssignmentRoot(), CreateMode.PERSISTENT);
+        createIfExists(getAssignmentPath(), CreateMode.PERSISTENT);
     }
 
     private void createIfExists(String path, CreateMode mode) {
@@ -75,14 +73,11 @@ public class JobWorker implements LeaderSelectorListener, Closeable {
         }
     }
 
-    private void setupWatches() {
+    private void watchJobsAndWorkersPath() {
         workersCache = CuratorCache.build(curator, WORKERS_ROOT);
         jobsCache = CuratorCache.build(curator, JOBS_ROOT);
         log.info("Watching {}", getWorkerPath());
         workersCache.start();
-
-        log.info("Watching {}", getJobsPath());
-        jobsCache.start();
         workersListener = new CuratorCacheListener() {
             @Override
             public void event(Type type, ChildData oldData, ChildData data) {
@@ -94,7 +89,10 @@ public class JobWorker implements LeaderSelectorListener, Closeable {
                 }
             }
         };
+        workersCache.listenable().addListener(workersListener);
 
+        log.info("Watching {}", getJobsPath());
+        jobsCache.start();
         jobsListener = new CuratorCacheListener() {
             @Override
             public void event(Type type, ChildData oldData, ChildData data) {
@@ -103,8 +101,22 @@ public class JobWorker implements LeaderSelectorListener, Closeable {
                 }
             }
         };
-        workersCache.listenable().addListener(workersListener);
         jobsCache.listenable().addListener(jobsListener);
+    }
+
+    private void watchAssignmentPath() {
+        assignmentCache = CuratorCache.build(curator, getAssignmentPath());
+        log.info("Watching {}", getAssignmentPath());
+        assignmentCache.start();
+        assignmentListener = new CuratorCacheListener() {
+            @Override
+            public void event(Type type, ChildData oldData, ChildData data) {
+                if (type == Type.NODE_CREATED) {
+                    log.info("New assignment created {}", data.getPath());
+                }
+            }
+        };
+        assignmentCache.listenable().addListener(assignmentListener);
     }
 
     private void destroy() {
@@ -132,7 +144,7 @@ public class JobWorker implements LeaderSelectorListener, Closeable {
         // we are now the leader. This method should not return until we want to relinquish leadership
         log.info("{} is now the leader", name);
         // only the leader should setup watches
-        setupWatches();
+        watchJobsAndWorkersPath();
         while (true) {
             try {
                 lock.lock();
@@ -192,8 +204,8 @@ public class JobWorker implements LeaderSelectorListener, Closeable {
         return WORKERS_ROOT + "/" + name;
     }
 
-    private String getAssignmentRoot() {
-        return ASSIGNMENT_ROOT;
+    private String getAssignmentPath() {
+        return ASSIGNMENT_ROOT + "/" + name;
     }
 
     private String getJobsPath() {

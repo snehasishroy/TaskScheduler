@@ -1,11 +1,10 @@
 package com.snehasishroy.resources;
 
-import com.snehasishroy.JobWorker;
+import com.snehasishroy.service.WorkerService;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
-import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
@@ -17,7 +16,7 @@ import java.util.UUID;
 @Path("/v1/workers")
 public class Worker {
     private static final String PATH = "/leader";
-    JobWorker worker;
+    WorkerService worker;
     private final CuratorFramework client;
 
     public Worker() {
@@ -31,7 +30,7 @@ public class Worker {
     }
 
     public void initWorker() {
-        worker = new JobWorker(client, PATH, UUID.randomUUID().toString());
+        worker = new WorkerService(client, PATH, UUID.randomUUID().toString());
     }
 
     @DELETE
