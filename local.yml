@@ -1,0 +1,10 @@
+server:
+  applicationConnectors:
+    - type: http
+      port: 7889
+  adminConnectors:
+    - type: http
+      port: 7890
+
+swagger:
+  resourcePackage: com.snehasishroy.resources
