@@ -3,17 +3,24 @@ package com.snehasishroy.service;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.curator.framework.CuratorFramework;
+import org.apache.curator.framework.api.BackgroundCallback;
+import org.apache.curator.framework.api.CuratorEvent;
 import org.apache.curator.framework.recipes.cache.ChildData;
 import org.apache.curator.framework.recipes.cache.CuratorCache;
 import org.apache.curator.framework.recipes.cache.CuratorCacheListener;
 import org.apache.curator.framework.recipes.leader.CancelLeadershipException;
 import org.apache.curator.framework.recipes.leader.LeaderSelector;
 import org.apache.curator.framework.recipes.leader.LeaderSelectorListener;
+import org.apache.curator.framework.recipes.nodes.PersistentNode;
 import org.apache.curator.framework.state.ConnectionState;
 import org.apache.zookeeper.CreateMode;
-import org.apache.zookeeper.data.Stat;
+import org.apache.zookeeper.KeeperException;
 
 import java.io.Closeable;
+import java.io.IOException;
+import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
@@ -37,6 +44,8 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
     private CuratorCacheListener workersListener;
     private CuratorCacheListener jobsListener;
     private CuratorCacheListener assignmentListener;
+    private PersistentNode workerNode;
+    ExecutorService executorService = Executors.newSingleThreadExecutor();
 
     public WorkerService(CuratorFramework curator, String path, String name) {
         this.name = name;
@@ -46,6 +55,9 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
         // the selection for this instance doesn't start until the leader selector is started
         // leader selection is done in the background so this call to leaderSelector.start() returns immediately
         leaderSelector.start();
+        // this is important as it automatically handles failure scenarios i.e. starts leadership after the reconnected state
+        // https://www.mail-archive.com/user@curator.apache.org/msg00903.html
+        leaderSelector.autoRequeue();
         setup();
         watchAssignmentPath();
     }
@@ -54,19 +66,38 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
     // client needs to handle this and recreate those nodes
 
     private void setup() {
-        createIfExists(getWorkerPath(), CreateMode.EPHEMERAL);
+        workerNode = createPersistentNode(getWorkerPath(), CreateMode.EPHEMERAL);
         createIfExists(getJobsPath(), CreateMode.PERSISTENT);
         createIfExists(getAssignmentPath(), CreateMode.PERSISTENT);
     }
 
-    private void createIfExists(String path, CreateMode mode) {
+    private PersistentNode createPersistentNode(String path, CreateMode mode) {
         log.info("Attempting creation of {}", path);
+        PersistentNode persistentNode = new PersistentNode(curator, mode, false, path, new byte[]{}, true);
+        persistentNode.start();
+        return persistentNode;
+    }
+
+    private void createIfExists(String path, CreateMode mode) {
+        // create the ZNode, no need to set any data with this znode
         try {
-            Stat stat = curator.checkExists().forPath(path);
-            if (stat == null) {
-                log.info("Path does not exist, trying to create it {}", path);
-                curator.create().creatingParentsIfNeeded().withMode(mode).forPath(path, name.getBytes());
-            }
+            curator.create().idempotent().creatingParentsIfNeeded().withMode(mode).inBackground(new BackgroundCallback() {
+                @Override
+                public void processResult(CuratorFramework client, CuratorEvent event) throws Exception {
+                    switch (KeeperException.Code.get(event.getResultCode())) {
+                        case OK -> {
+                            log.info("Path created successfully {}", event.getPath());
+                        }
+                        case CONNECTIONLOSS -> {
+                            log.info("Lost connection while creating {}, retrying", event.getPath());
+                            createIfExists(event.getPath(), mode);
+                        }
+                        case NODEEXISTS -> {
+                            log.info("Node already exists for path {}", event.getPath());
+                        }
+                    }
+                }
+            }).forPath(path);
         } catch (Exception e) {
             log.error("Unable to create {} due to ", path, e);
             throw new RuntimeException(e);
@@ -96,18 +127,38 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
         jobsListener = new CuratorCacheListener() {
             @Override
             public void event(Type type, ChildData oldData, ChildData data) {
-                if (type == Type.NODE_CREATED) {
+                if (type == Type.NODE_CREATED && data.getPath().length() > JOBS_ROOT.length()) {
                     log.info("found new job {} ", data.getPath());
+                    executorService.submit(new JobHandler(data.getPath()));
                 }
             }
         };
         jobsCache.listenable().addListener(jobsListener);
     }
 
+    class JobHandler implements Runnable {
+
+        private String jobID;
+
+        JobHandler(String jobID) {
+            this.jobID = jobID;
+        }
+
+        @Override
+        public void run() {
+            workersCache.stream()
+                    .filter(childData -> (childData.getPath().length() > WORKERS_ROOT.length()))
+                    .forEach(childData -> log.info("Available workers are {}", childData.getPath()));
+
+        }
+    }
+
     private void watchAssignmentPath() {
         assignmentCache = CuratorCache.build(curator, getAssignmentPath());
         log.info("Watching {}", getAssignmentPath());
         assignmentCache.start();
+//        assignmentListener = CuratorCacheListener.builder()
+//                .forCreates()
         assignmentListener = new CuratorCacheListener() {
             @Override
             public void event(Type type, ChildData oldData, ChildData data) {
@@ -132,6 +183,11 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
         log.info("Removing jobs listener");
         jobsCache.listenable().removeListener(jobsListener);
         jobsCache.close();
+        try {
+            workerNode.close();
+        } catch (IOException e) {
+            log.error("Unable to close worker node", e);
+        }
     }
 
     @Override
@@ -140,25 +196,26 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
     }
 
     @Override
-    public void takeLeadership(CuratorFramework client) throws InterruptedException {
-        // we are now the leader. This method should not return until we want to relinquish leadership
+    public void takeLeadership(CuratorFramework client) {
+        // we are now the leader. This method should not return until we want to relinquish leadership,
+        // which will only happen, if someone has signalled us to stop
         log.info("{} is now the leader", name);
         // only the leader should setup watches
         watchJobsAndWorkersPath();
-        while (true) {
-            try {
-                lock.lock();
-                while (!shouldStop.get()) {
-                    condition.await();
-                }
-                if (shouldStop.get()) {
-                    log.info("{} is signalled to stop!", name);
-                    leaderSelector.close();
-                    return;
-                }
-            } finally {
-                lock.unlock();
+        lock.lock();
+        try {
+            while (!shouldStop.get()) {
+                condition.await();
             }
+            if (shouldStop.get()) {
+                log.info("{} is signalled to stop!", name);
+                leaderSelector.close();
+            }
+        } catch (InterruptedException e) {
+            log.error("Thread is interrupted, need to exit the leadership", e);
+        } finally {
+            // finally is called before the method return
+            lock.unlock();
         }
     }
 
@@ -167,6 +224,11 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
         if (client.getConnectionStateErrorPolicy().isErrorState(newState)) {
             log.info("Something bad happened {}", newState);
             throw new CancelLeadershipException();
+        } else if (newState == ConnectionState.RECONNECTED) {
+            // no need to recreate the worker path because persistent node will take care of it
+            // if persistent node is not used, then it becomes tricky to recreate the node
+            log.info("Reconnected to ZK");
+            // no need to start the leadership again as it is auto requeued
         }
     }
 
