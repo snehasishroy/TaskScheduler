@@ -154,8 +154,6 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
             public void event(Type type, ChildData oldData, ChildData data) {
                 if (type == Type.NODE_CREATED && data.getPath().length() > ZKUtils.JOBS_ROOT.length()) {
                     String jobContents = new String(data.getData());
-                    
-                    Runnable test = (Runnable) jobContents;
                     log.info("job contents {}", jobContents);
                     String jobID = extractNode(data.getPath());
                     log.info("found new job {} ", jobID);
