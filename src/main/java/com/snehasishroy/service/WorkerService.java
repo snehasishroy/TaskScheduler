@@ -1,6 +1,7 @@
 package com.snehasishroy.service;
 
-import com.snehasishroy.callbacks.JobHandler;
+import com.snehasishroy.callbacks.JobsListener;
+import com.snehasishroy.callbacks.WorkersListener;
 import com.snehasishroy.util.ZKUtils;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -111,33 +112,12 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
         jobsCache = CuratorCache.build(curator, ZKUtils.JOBS_ROOT);
         log.info("Watching {}", ZKUtils.getWorkerPath(name));
         workersCache.start();
-        workersListener = new CuratorCacheListener() {
-            @Override
-            public void event(Type type, ChildData oldData, ChildData data) {
-                if (type == Type.NODE_CREATED) {
-                    log.info("found new worker {} ", data.getPath());
-                } else if (type == Type.NODE_DELETED) {
-                    // notice we have to check oldData because data will be null
-                    log.info("Lost worker {}", oldData.getPath());
-                }
-            }
-        };
+        workersListener = new WorkersListener();
         workersCache.listenable().addListener(workersListener);
 
         log.info("Watching {}", ZKUtils.getJobsPath());
         jobsCache.start();
-        jobsListener = new CuratorCacheListener() {
-            @Override
-            public void event(Type type, ChildData oldData, ChildData data) {
-                if (type == Type.NODE_CREATED && data.getPath().length() > ZKUtils.JOBS_ROOT.length()) {
-                    String jobContents = new String(data.getData());
-                    log.info("job contents {}", jobContents);
-                    String jobID = ZKUtils.extractNode(data.getPath());
-                    log.info("found new job {} ", jobID);
-                    executorService.submit(new JobHandler(jobID, curator, workersCache));
-                }
-            }
-        };
+        jobsListener = new JobsListener(curator, workersCache);
         jobsCache.listenable().addListener(jobsListener);
     }
 
@@ -145,8 +125,6 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
         assignmentCache = CuratorCache.build(curator, ZKUtils.getAssignmentPath(name));
         log.info("Watching {}", ZKUtils.getAssignmentPath(name));
         assignmentCache.start();
-//        assignmentListener = CuratorCacheListener.builder()
-//                .forCreates()
         assignmentListener = new CuratorCacheListener() {
             @Override
             public void event(Type type, ChildData oldData, ChildData data) {
