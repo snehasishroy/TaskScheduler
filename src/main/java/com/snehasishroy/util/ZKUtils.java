@@ -16,4 +16,9 @@ public class ZKUtils {
     public static String getJobsPath() {
         return JOBS_ROOT;
     }
+
+    public static String extractNode(String workerPath) {
+        int start = workerPath.lastIndexOf('/');
+        return workerPath.substring(start + 1);
+    }
 }

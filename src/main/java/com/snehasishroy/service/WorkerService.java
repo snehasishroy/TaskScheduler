@@ -1,5 +1,6 @@
 package com.snehasishroy.service;
 
+import com.snehasishroy.callbacks.JobHandler;
 import com.snehasishroy.util.ZKUtils;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -17,7 +18,6 @@ import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 
 import java.io.Closeable;
-import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -106,29 +106,6 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
         }
     }
 
-    private void asyncDelete(String path) {
-        // create the ZNode, no need to set any data with this znode
-        try {
-            curator.delete().idempotent().guaranteed().inBackground(new BackgroundCallback() {
-                @Override
-                public void processResult(CuratorFramework client, CuratorEvent event) {
-                    switch (KeeperException.Code.get(event.getResultCode())) {
-                        case OK -> {
-                            log.info("Path deleted successfully {}", event.getPath());
-                        }
-                        case CONNECTIONLOSS -> {
-                            log.info("Lost connection to ZK while deleting {}, retrying", event.getPath());
-                            asyncDelete(event.getPath());
-                        }
-                    }
-                }
-            }).forPath(path);
-        } catch (Exception e) {
-            log.error("Unable to delete {} due to ", path, e);
-            throw new RuntimeException(e);
-        }
-    }
-
     private void watchJobsAndWorkersPath() {
         workersCache = CuratorCache.build(curator, ZKUtils.WORKERS_ROOT);
         jobsCache = CuratorCache.build(curator, ZKUtils.JOBS_ROOT);
@@ -155,9 +132,9 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
                 if (type == Type.NODE_CREATED && data.getPath().length() > ZKUtils.JOBS_ROOT.length()) {
                     String jobContents = new String(data.getData());
                     log.info("job contents {}", jobContents);
-                    String jobID = extractNode(data.getPath());
+                    String jobID = ZKUtils.extractNode(data.getPath());
                     log.info("found new job {} ", jobID);
-                    executorService.submit(new JobHandler(jobID, curator));
+                    executorService.submit(new JobHandler(jobID, curator, workersCache));
                 }
             }
         };
@@ -273,58 +250,5 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
         }
     }
 
-    private String extractNode(String workerPath) {
-        int start = workerPath.lastIndexOf('/');
-        return workerPath.substring(start + 1);
-    }
 
-
-    class JobHandler implements Runnable {
-
-        private final CuratorFramework curator;
-        private final String jobID;
-        private String workerName;
-
-        JobHandler(String jobID, CuratorFramework curator) {
-            this.jobID = jobID;
-            this.curator = curator;
-        }
-
-        @Override
-        public void run() {
-            List<ChildData> workers = workersCache.stream()
-                    .filter(childData -> (childData.getPath().length() > ZKUtils.WORKERS_ROOT.length()))
-                    .toList();
-            int chosenWorker = (int) (Math.random() * workers.size());
-            workerName = extractNode(workers.get(chosenWorker).getPath());
-            log.info("Found total workers {}, Chosen worker index {}, worker name {}", workers.size(), chosenWorker, workerName);
-            createAssignment();
-        }
-
-        private void createAssignment() {
-            try {
-                curator.create().idempotent().withMode(CreateMode.PERSISTENT).inBackground(new BackgroundCallback() {
-                    @Override
-                    public void processResult(CuratorFramework client, CuratorEvent event) {
-                        switch (KeeperException.Code.get(event.getResultCode())) {
-                            case OK -> {
-                                log.info("Assignment created successfully for {} with {}", jobID, workerName);
-                                asyncDelete(ZKUtils.JOBS_ROOT + "/" + jobID);
-                            }
-                            case CONNECTIONLOSS -> {
-                                log.info("Lost connection to ZK while creating {}, retrying", event.getPath());
-                                createAssignment();
-                            }
-                            case NODEEXISTS -> {
-                                log.info("Assignment already exists for path {}", event.getPath());
-                            }
-                        }
-                    }
-                }).forPath(ZKUtils.ASSIGNMENT_ROOT + "/" + workerName + "/" + jobID);
-            } catch (Exception e) {
-                log.error("Error while creating assignment for {} with {}", jobID, workerName, e);
-                throw new RuntimeException(e);
-            }
-        }
-    }
 }
