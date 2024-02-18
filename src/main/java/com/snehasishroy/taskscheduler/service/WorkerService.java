@@ -1,8 +1,8 @@
-package com.snehasishroy.service;
+package com.snehasishroy.taskscheduler.service;
 
-import com.snehasishroy.callbacks.JobsListener;
-import com.snehasishroy.callbacks.WorkersListener;
-import com.snehasishroy.util.ZKUtils;
+import com.snehasishroy.taskscheduler.callbacks.JobsListener;
+import com.snehasishroy.taskscheduler.callbacks.WorkersListener;
+import com.snehasishroy.taskscheduler.util.ZKUtils;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.curator.framework.CuratorFramework;
@@ -18,7 +18,10 @@ import org.apache.curator.framework.state.ConnectionState;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 
+import java.io.ByteArrayInputStream;
 import java.io.Closeable;
+import java.io.ObjectInputStream;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -107,15 +110,16 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
         }
     }
 
+    // only the leader worker will watch for incoming jobs and changes to available workers
     private void watchJobsAndWorkersPath() {
         workersCache = CuratorCache.build(curator, ZKUtils.WORKERS_ROOT);
         jobsCache = CuratorCache.build(curator, ZKUtils.JOBS_ROOT);
-        log.info("Watching {}", ZKUtils.getWorkerPath(name));
+        log.info("Watching workers {}", ZKUtils.getWorkerPath(name));
         workersCache.start();
         workersListener = new WorkersListener();
         workersCache.listenable().addListener(workersListener);
 
-        log.info("Watching {}", ZKUtils.getJobsPath());
+        log.info("Watching jobs {}", ZKUtils.getJobsPath());
         jobsCache.start();
         jobsListener = new JobsListener(curator, workersCache);
         jobsCache.listenable().addListener(jobsListener);
@@ -129,7 +133,20 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
             @Override
             public void event(Type type, ChildData oldData, ChildData data) {
                 if (type == Type.NODE_CREATED) {
-                    log.info("New job assignment {}", data.getPath());
+                    String jobId = data.getPath().substring(data.getPath().lastIndexOf('/') + 1);
+                    log.info("Assignment found for job id {}", jobId);
+
+                    log.info("Fetching job details for job id {}", jobId);
+                    try {
+                        byte[] bytes = curator.getData().forPath(ZKUtils.getJobsPath() + "/" + jobId);
+                        ObjectInputStream objectInputStream = new ObjectInputStream(new ByteArrayInputStream(bytes));
+                        Runnable jobDetail = (Runnable) objectInputStream.readObject();
+                        log.info("Deserialized the runnable {}", jobDetail);
+                        executorService.submit(jobDetail);
+                        log.info("Job submitted");
+                    } catch (Exception e) {
+                        log.error("Unable to fetch data for job id {}", jobId, e);
+                    }
                 }
             }
         };
@@ -169,7 +186,7 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
                 condition.await();
             }
             if (shouldStop.get()) {
-                log.info("{} is signalled to stop!", name);
+                log.warn("{} is signalled to stop!", name);
                 leaderSelector.close();
             }
         } catch (InterruptedException e) { // this is propagated from cancel leadership election
@@ -185,26 +202,26 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
         if (newState == ConnectionState.RECONNECTED) {
             // no need to recreate the worker path because persistent node will take care of it
             // if persistent node is not used, then it becomes tricky to recreate the node
-            log.info("Reconnected to ZK, Received {}", newState);
+            log.error("Reconnected to ZK, Received {}", newState);
             // no need to start the leadership again as it is auto requeued
             registerWorker();
         } else if (newState == ConnectionState.LOST) {
-            log.info("Connection lost to ZK, session has been expired, giving up leadership {}", newState);
+            log.error("Connection lost to ZK, session has been expired, giving up leadership {}", newState);
             registrationRequired.set(true);
             throw new CancelLeadershipException();
         } else if (newState == ConnectionState.SUSPENDED) {
-            log.info("Connection has been suspended to ZK, giving up leadership {}", newState);
+            log.error("Connection has been suspended to ZK, giving up leadership {}", newState);
             throw new CancelLeadershipException();
         }
     }
 
     public void stop() {
         // whatever was done in start(), need to do the reverse in stop()
-        log.info("Sending stop signal to {}", name);
+        log.warn("Sending stop signal to {}", name);
         destroy();
         shouldStop.compareAndSet(false, true);
         if (leaderSelector.hasLeadership()) {
-            log.info("Giving up leadership {}", name);
+            log.warn("Giving up leadership {}", name);
             try {
                 lock.lock();
                 condition.signalAll();
@@ -219,14 +236,12 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
 
     }
 
-    public String getLeader() {
+    public Optional<String> getLeader() {
         try {
-            return leaderSelector.getLeader().getId();
+            return Optional.of(leaderSelector.getLeader().getId());
         } catch (Exception e) {
-            log.info("Unable to get leader information due to ", e);
-            return "NO_LEADER";
+            log.error("Unable to get leader information due to ", e);
+            return Optional.empty();
         }
     }
-
-
 }

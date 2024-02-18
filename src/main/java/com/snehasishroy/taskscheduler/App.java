@@ -1,15 +1,14 @@
-package com.snehasishroy;
+package com.snehasishroy.taskscheduler;
 
-import com.snehasishroy.module.GuiceModule;
-import com.snehasishroy.resources.Job;
-import com.snehasishroy.resources.Worker;
+import com.snehasishroy.taskscheduler.module.GuiceModule;
+import com.snehasishroy.taskscheduler.resources.Job;
+import com.snehasishroy.taskscheduler.resources.Worker;
 import io.dropwizard.core.Application;
 import io.dropwizard.core.setup.Bootstrap;
 import io.dropwizard.core.setup.Environment;
 import io.federecio.dropwizard.swagger.SwaggerBundle;
 import io.federecio.dropwizard.swagger.SwaggerBundleConfiguration;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.curator.framework.CuratorFramework;
 import ru.vyarus.dropwizard.guice.GuiceBundle;
 
 @Slf4j

@@ -1,6 +1,6 @@
-package com.snehasishroy.callbacks;
+package com.snehasishroy.taskscheduler.callbacks;
 
-import com.snehasishroy.util.ZKUtils;
+import com.snehasishroy.taskscheduler.util.ZKUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.recipes.cache.ChildData;
@@ -28,7 +28,9 @@ public class JobsListener implements CuratorCacheListener {
             String jobContents = new String(data.getData());
             log.info("job contents {}", jobContents);
             String jobID = ZKUtils.extractNode(data.getPath());
-            log.info("found new job {} ", jobID);
+            log.info("found new job {}, passing it to executor service", jobID);
+            // an executor service is used in order to avoid blocking the watcher thread as the job execution can be time consuming
+            // and we don't want to skip handling new jobs during that time
             executorService.submit(new JobHandler(jobID, curator, workersCache));
         }
     }

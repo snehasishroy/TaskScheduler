@@ -7,4 +7,4 @@ server:
       port: 7890
 
 swagger:
-  resourcePackage: com.snehasishroy.resources
+  resourcePackage: com.snehasishroy.taskscheduler.resources

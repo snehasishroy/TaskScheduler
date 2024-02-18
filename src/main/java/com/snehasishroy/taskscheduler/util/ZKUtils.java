@@ -1,4 +1,4 @@
-package com.snehasishroy.util;
+package com.snehasishroy.taskscheduler.util;
 
 public class ZKUtils {
     public static final String WORKERS_ROOT = "/workers";

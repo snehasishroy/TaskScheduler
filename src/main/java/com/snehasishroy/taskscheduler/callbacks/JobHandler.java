@@ -1,6 +1,6 @@
-package com.snehasishroy.callbacks;
+package com.snehasishroy.taskscheduler.callbacks;
 
-import com.snehasishroy.util.ZKUtils;
+import com.snehasishroy.taskscheduler.util.ZKUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.api.BackgroundCallback;
@@ -45,7 +45,7 @@ public class JobHandler implements Runnable {
                     switch (KeeperException.Code.get(event.getResultCode())) {
                         case OK -> {
                             log.info("Assignment created successfully for {} with {}", jobID, workerName);
-                            asyncDelete(ZKUtils.JOBS_ROOT + "/" + jobID);
+//                            asyncDelete(ZKUtils.JOBS_ROOT + "/" + jobID);
                         }
                         case CONNECTIONLOSS -> {
                             log.info("Lost connection to ZK while creating {}, retrying", event.getPath());

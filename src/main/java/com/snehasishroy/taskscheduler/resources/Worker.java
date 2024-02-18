@@ -1,7 +1,7 @@
-package com.snehasishroy.resources;
+package com.snehasishroy.taskscheduler.resources;
 
 import com.google.inject.Inject;
-import com.snehasishroy.service.WorkerService;
+import com.snehasishroy.taskscheduler.service.WorkerService;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
@@ -35,6 +35,7 @@ public class Worker {
     @GET
     @Path("/leader")
     public String getLeaderId() {
-        return worker.getLeader();
+        return worker.getLeader()
+                .orElse("No leader found");
     }
 }

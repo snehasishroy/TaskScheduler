@@ -1,7 +1,7 @@
-package com.snehasishroy.resources;
+package com.snehasishroy.taskscheduler.resources;
 
 import com.google.inject.Inject;
-import com.snehasishroy.util.ZKUtils;
+import com.snehasishroy.taskscheduler.util.ZKUtils;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import lombok.extern.slf4j.Slf4j;
