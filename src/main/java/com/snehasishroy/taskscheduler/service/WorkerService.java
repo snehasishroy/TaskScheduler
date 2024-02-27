@@ -2,6 +2,8 @@ package com.snehasishroy.taskscheduler.service;
 
 import com.snehasishroy.taskscheduler.callbacks.JobsListener;
 import com.snehasishroy.taskscheduler.callbacks.WorkersListener;
+import com.snehasishroy.taskscheduler.strategy.RoundRobinWorker;
+import com.snehasishroy.taskscheduler.strategy.WorkerPickerStrategy;
 import com.snehasishroy.taskscheduler.util.ZKUtils;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -48,6 +50,7 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
     private CuratorCacheListener workersListener;
     private CuratorCacheListener jobsListener;
     private CuratorCacheListener assignmentListener;
+    private final WorkerPickerStrategy workerPickerStrategy;
 
     public WorkerService(CuratorFramework curator, String path) {
         this.curator = curator;
@@ -60,6 +63,7 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
         leaderSelector.autoRequeue();
         setup();
         watchAssignmentPath();
+        workerPickerStrategy = new RoundRobinWorker();
     }
 
     // TODO: Handle Reconnected State change, when the workers lose connection to the server, server will delete the ephemeral nodes,
@@ -121,7 +125,7 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
 
         log.info("Watching jobs {}", ZKUtils.getJobsPath());
         jobsCache.start();
-        jobsListener = new JobsListener(curator, workersCache);
+        jobsListener = new JobsListener(curator, workersCache, workerPickerStrategy);
         jobsCache.listenable().addListener(jobsListener);
     }
 

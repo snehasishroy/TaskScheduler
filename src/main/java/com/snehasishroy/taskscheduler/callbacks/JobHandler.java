@@ -1,6 +1,8 @@
 package com.snehasishroy.taskscheduler.callbacks;
 
+import com.snehasishroy.taskscheduler.strategy.WorkerPickerStrategy;
 import com.snehasishroy.taskscheduler.util.ZKUtils;
+import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.api.BackgroundCallback;
@@ -18,12 +20,14 @@ public class JobHandler implements Runnable {
     private final CuratorFramework curator;
     private final String jobID;
     private final CuratorCache workersCache;
+    private final WorkerPickerStrategy workerPickerStrategy;
     private String workerName;
 
-    public JobHandler(String jobID, CuratorFramework curator, CuratorCache workersCache) {
+    public JobHandler(String jobID, CuratorFramework curator, CuratorCache workersCache, WorkerPickerStrategy workerPickerStrategy) {
         this.jobID = jobID;
         this.curator = curator;
         this.workersCache = workersCache;
+        this.workerPickerStrategy = workerPickerStrategy;
     }
 
     @Override
@@ -31,8 +35,8 @@ public class JobHandler implements Runnable {
         List<ChildData> workers = workersCache.stream()
                 .filter(childData -> (childData.getPath().length() > ZKUtils.WORKERS_ROOT.length()))
                 .toList();
-        int chosenWorker = (int) (Math.random() * workers.size());
-        workerName = ZKUtils.extractNode(workers.get(chosenWorker).getPath());
+        ChildData chosenWorker = workerPickerStrategy.evaluate(workers);
+        workerName = ZKUtils.extractNode(chosenWorker.getPath());
         log.info("Found total workers {}, Chosen worker index {}, worker name {}", workers.size(), chosenWorker, workerName);
         createAssignment();
     }
@@ -64,7 +68,7 @@ public class JobHandler implements Runnable {
     }
 
     private void asyncDelete(String path) {
-        // create the ZNode, no need to set any data with this znode
+        // create the ZNode, no need to set any data with this ZNode
         try {
             curator.delete().idempotent().guaranteed().inBackground(new BackgroundCallback() {
                 @Override
