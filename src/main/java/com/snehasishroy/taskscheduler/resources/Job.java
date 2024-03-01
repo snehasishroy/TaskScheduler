@@ -4,11 +4,10 @@ import com.google.inject.Inject;
 import com.snehasishroy.taskscheduler.util.ZKUtils;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
+import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.zookeeper.CreateMode;
-
-import java.util.UUID;
 
 @Path("/v1/jobs")
 @Slf4j

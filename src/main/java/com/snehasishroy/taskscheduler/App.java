@@ -14,36 +14,35 @@ import ru.vyarus.dropwizard.guice.GuiceBundle;
 @Slf4j
 public class App extends Application<AppConfiguration> {
 
-    public static void main(String[] args) throws Exception {
-        new App().run(args);
-    }
+  public static void main(String[] args) throws Exception {
+    new App().run(args);
+  }
 
-    @Override
-    public void initialize(Bootstrap<AppConfiguration> bootstrap) {
-        bootstrap.addBundle(guiceBundle());
-        bootstrap.addBundle(new SwaggerBundle<>() {
-            @Override
-            protected SwaggerBundleConfiguration getSwaggerBundleConfiguration(AppConfiguration appConfiguration) {
-                return appConfiguration.getSwaggerBundleConfiguration();
-            }
+  @Override
+  public void initialize(Bootstrap<AppConfiguration> bootstrap) {
+    bootstrap.addBundle(guiceBundle());
+    bootstrap.addBundle(
+        new SwaggerBundle<>() {
+          @Override
+          protected SwaggerBundleConfiguration getSwaggerBundleConfiguration(
+              AppConfiguration appConfiguration) {
+            return appConfiguration.getSwaggerBundleConfiguration();
+          }
         });
-    }
+  }
 
-    @Override
-    public void run(AppConfiguration c, Environment e) {
-        log.info("Registering REST resources");
-        e.jersey().register(Worker.class);
-        e.jersey().register(Job.class);
-    }
+  @Override
+  public void run(AppConfiguration c, Environment e) {
+    log.info("Registering REST resources");
+    e.jersey().register(Worker.class);
+    e.jersey().register(Job.class);
+  }
 
-    private GuiceModule createGuiceModule() {
-        return new GuiceModule();
-    }
+  private GuiceModule createGuiceModule() {
+    return new GuiceModule();
+  }
 
-    private GuiceBundle guiceBundle() {
-        return GuiceBundle.builder()
-                .enableAutoConfig()
-                .modules(new GuiceModule())
-                .build();
-    }
+  private GuiceBundle guiceBundle() {
+    return GuiceBundle.builder().enableAutoConfig().modules(new GuiceModule()).build();
+  }
 }

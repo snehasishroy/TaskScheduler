@@ -1,4 +1,3 @@
 package com.snehasishroy.taskscheduler.core;
 
-public class ZKDao {
-}
+public class ZKDao {}

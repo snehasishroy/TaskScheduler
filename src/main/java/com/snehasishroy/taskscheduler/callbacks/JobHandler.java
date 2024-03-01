@@ -2,7 +2,7 @@ package com.snehasishroy.taskscheduler.callbacks;
 
 import com.snehasishroy.taskscheduler.strategy.WorkerPickerStrategy;
 import com.snehasishroy.taskscheduler.util.ZKUtils;
-import lombok.AllArgsConstructor;
+import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.api.BackgroundCallback;
@@ -11,8 +11,6 @@ import org.apache.curator.framework.recipes.cache.ChildData;
 import org.apache.curator.framework.recipes.cache.CuratorCache;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
-
-import java.util.List;
 
 @Slf4j
 public class JobHandler implements Runnable {

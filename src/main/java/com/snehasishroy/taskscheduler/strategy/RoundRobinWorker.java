@@ -1,9 +1,8 @@
 package com.snehasishroy.taskscheduler.strategy;
 
-import org.apache.curator.framework.recipes.cache.ChildData;
-
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.apache.curator.framework.recipes.cache.ChildData;
 
 public class RoundRobinWorker implements WorkerPickerStrategy {
     AtomicInteger index = new AtomicInteger(0); // atomic because this will be accessed from multiple threads

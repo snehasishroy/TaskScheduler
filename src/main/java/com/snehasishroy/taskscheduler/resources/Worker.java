@@ -9,33 +9,33 @@ import jakarta.ws.rs.PathParam;
 import org.apache.curator.framework.CuratorFramework;
 
 // https://medium.com/@nadinCodeHat/rest-api-naming-conventions-and-best-practices-1c4e781eb6a5
-// Use nouns to represent resources and HTTP methods are then used to perform actions on those resources
+// Use nouns to represent resources and HTTP methods are then used to perform actions on those
+// resources
 @Path("/v1/workers")
 public class Worker {
-    private static final String PATH = "/leader";
-    private final CuratorFramework curator;
-    WorkerService worker;
+  private static final String PATH = "/leader";
+  private final CuratorFramework curator;
+  WorkerService worker;
 
-    @Inject
-    public Worker(CuratorFramework curator) {
-        this.curator = curator;
-        initWorker();
-    }
+  @Inject
+  public Worker(CuratorFramework curator) {
+    this.curator = curator;
+    initWorker();
+  }
 
-    public void initWorker() {
-        worker = new WorkerService(curator, PATH);
-    }
+  public void initWorker() {
+    worker = new WorkerService(curator, PATH);
+  }
 
-    @DELETE
-    @Path("/{id}")
-    public void stopWorker(@PathParam("id") String id) {
-        worker.stop();
-    }
+  @DELETE
+  @Path("/{id}")
+  public void stopWorker(@PathParam("id") String id) {
+    worker.stop();
+  }
 
-    @GET
-    @Path("/leader")
-    public String getLeaderId() {
-        return worker.getLeader()
-                .orElse("No leader found");
-    }
+  @GET
+  @Path("/leader")
+  public String getLeaderId() {
+    return worker.getLeader().orElse("No leader found");
+  }
 }

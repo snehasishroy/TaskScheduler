@@ -13,6 +13,6 @@ import lombok.*;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class AppConfiguration extends Configuration {
 
-    @JsonProperty("swagger")
-    SwaggerBundleConfiguration swaggerBundleConfiguration;
+  @JsonProperty("swagger")
+  SwaggerBundleConfiguration swaggerBundleConfiguration;
 }

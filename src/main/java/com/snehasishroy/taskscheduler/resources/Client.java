@@ -14,16 +14,18 @@ import java.io.Serializable;
 @Slf4j
 @Path("/v1/client")
 public class Client {
-    private final ClientService clientService;
+  private final ClientService clientService;
 
-    @Inject
-    public Client(CuratorFramework curator) {
-        this.clientService = new ClientService(curator);
-    }
+  @Inject
+  public Client(CuratorFramework curator) {
+    this.clientService = new ClientService(curator);
+  }
 
-    @POST
-    public String createSumTask(@QueryParam("first") int a, @QueryParam("second") int b) {
-        Runnable jobDetail = (Runnable & Serializable)(() -> System.out.println("Sum of " + a + " and " + b + " is " + (a + b)));
-        return clientService.registerJob(jobDetail);
-    }
+  @POST
+  public String createSumTask(@QueryParam("first") int a, @QueryParam("second") int b) {
+    Runnable jobDetail =
+        (Runnable & Serializable)
+            (() -> System.out.println("Sum of " + a + " and " + b + " is " + (a + b)));
+    return clientService.registerJob(jobDetail);
+  }
 }
