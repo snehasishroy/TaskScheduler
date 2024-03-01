@@ -1,15 +1,13 @@
 package com.snehasishroy.taskscheduler.resources;
 
 import com.google.inject.Inject;
-import com.snehasishroy.taskscheduler.JobDetail;
 import com.snehasishroy.taskscheduler.service.ClientService;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.QueryParam;
+import java.io.Serializable;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.curator.framework.CuratorFramework;
-
-import java.io.Serializable;
 
 @Slf4j
 @Path("/v1/client")

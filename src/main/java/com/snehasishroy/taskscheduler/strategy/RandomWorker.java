@@ -1,8 +1,7 @@
 package com.snehasishroy.taskscheduler.strategy;
 
-import org.apache.curator.framework.recipes.cache.ChildData;
-
 import java.util.List;
+import org.apache.curator.framework.recipes.cache.ChildData;
 
 public class RandomWorker implements WorkerPickerStrategy {
   @Override

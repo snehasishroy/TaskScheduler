@@ -2,14 +2,13 @@ package com.snehasishroy.taskscheduler.callbacks;
 
 import com.snehasishroy.taskscheduler.strategy.WorkerPickerStrategy;
 import com.snehasishroy.taskscheduler.util.ZKUtils;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.recipes.cache.ChildData;
 import org.apache.curator.framework.recipes.cache.CuratorCache;
 import org.apache.curator.framework.recipes.cache.CuratorCacheListener;
-
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 @Slf4j
 public class JobsListener implements CuratorCacheListener {

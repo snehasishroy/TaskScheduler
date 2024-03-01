@@ -13,21 +13,24 @@ import org.apache.zookeeper.CreateMode;
 @Slf4j
 public class Job {
 
-    private final CuratorFramework curator;
+  private final CuratorFramework curator;
 
-    @Inject
-    public Job(CuratorFramework curator) {
-        this.curator = curator;
-    }
+  @Inject
+  public Job(CuratorFramework curator) {
+    this.curator = curator;
+  }
 
-    @POST
-    public void createJob(String jobData) {
-        log.info("Received job {}", jobData);
-        try {
-            curator.create().withMode(CreateMode.PERSISTENT).forPath(ZKUtils.getJobsPath() + "/" + UUID.randomUUID(), jobData.getBytes());
-        } catch (Exception e) {
-            log.error("Unable to submit job", e);
-            throw new RuntimeException(e);
-        }
+  @POST
+  public void createJob(String jobData) {
+    log.info("Received job {}", jobData);
+    try {
+      curator
+          .create()
+          .withMode(CreateMode.PERSISTENT)
+          .forPath(ZKUtils.getJobsPath() + "/" + UUID.randomUUID(), jobData.getBytes());
+    } catch (Exception e) {
+      log.error("Unable to submit job", e);
+      throw new RuntimeException(e);
     }
+  }
 }
