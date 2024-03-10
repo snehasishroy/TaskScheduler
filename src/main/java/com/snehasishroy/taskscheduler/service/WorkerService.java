@@ -138,13 +138,13 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
     if (workersCache == null) {
       workersCache = CuratorCache.build(curator, ZKUtils.WORKERS_ROOT);
       workersCache.start();
-      log.info("Watching workers {}", ZKUtils.getWorkerPath(name));
+      log.info("Watching workers root path {}", ZKUtils.WORKERS_ROOT);
       workersListener = new WorkersListener(assignmentCache, curator);
       workersCache.listenable().addListener(workersListener);
     }
     if (jobsCache == null) {
       jobsCache = CuratorCache.build(curator, ZKUtils.JOBS_ROOT);
-      log.info("Watching jobs {}", ZKUtils.getJobsPath());
+      log.info("Watching jobs root path {}", ZKUtils.getJobsPath());
       jobsCache.start();
       jobsListener = new JobsListener(curator, workersCache, workerPickerStrategy);
       jobsCache.listenable().addListener(jobsListener);
