@@ -113,6 +113,7 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
                     case NODEEXISTS -> {
                       log.warn("Node already exists for path {}", event.getPath());
                     }
+                    default -> log.error("Unhandled event {}", event);
                   }
                 }
               },

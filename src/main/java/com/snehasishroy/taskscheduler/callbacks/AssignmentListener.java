@@ -22,7 +22,7 @@ public class AssignmentListener implements CuratorCacheListener {
 
   public AssignmentListener(CuratorFramework curator) {
     this.curator = curator;
-    this.executorService = Executors.newSingleThreadExecutor();
+    this.executorService = Executors.newFixedThreadPool(10);
   }
 
   @Override
@@ -58,6 +58,7 @@ public class AssignmentListener implements CuratorCacheListener {
   }
 
   private void asyncCreate(String jobId, String assignmentPath) {
+    log.info("Future is being chained");
     // create the ZNode, no need to set any data with this znode
     try {
       curator
@@ -83,10 +84,11 @@ public class AssignmentListener implements CuratorCacheListener {
                     case NODEEXISTS -> {
                       log.warn("Node already exists for path {}", event.getPath());
                     }
+                    default -> log.error("Unhandled event {}", event);
                   }
                 }
               })
-          .forPath(ZKUtils.getStatusPath(jobId));
+          .forPath(ZKUtils.getStatusPath(jobId), "Completed".getBytes());
     } catch (Exception e) {
       log.error("Unable to create {} due to ", ZKUtils.getStatusPath(jobId), e);
       throw new RuntimeException(e);
@@ -113,6 +115,7 @@ public class AssignmentListener implements CuratorCacheListener {
                           "Lost connection to ZK while deleting {}, retrying", event.getPath());
                       asyncDelete(event.getPath());
                     }
+                    default -> log.error("Unhandled event {}", event);
                   }
                 }
               })

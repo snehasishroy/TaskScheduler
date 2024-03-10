@@ -79,6 +79,7 @@ public class JobAssigner implements Runnable {
                     case NODEEXISTS -> {
                       log.warn("Assignment already exists for path {}", event.getPath());
                     }
+                    default -> log.error("Unhandled event {} ", event);
                   }
                 }
               })
@@ -117,6 +118,7 @@ public class JobAssigner implements Runnable {
                           "Lost connection to ZK while deleting {}, retrying", event.getPath());
                       asyncDelete(event.getPath());
                     }
+                    default -> log.error("Unhandled event {}", event);
                   }
                 }
               })

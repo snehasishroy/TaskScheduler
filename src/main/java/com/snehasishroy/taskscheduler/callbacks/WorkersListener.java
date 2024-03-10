@@ -77,6 +77,7 @@ public class WorkersListener implements CuratorCacheListener {
                     case NODEEXISTS -> {
                       log.warn("Job already exists for path {}", event.getPath());
                     }
+                    default -> log.error("Unhandled event {}", event);
                   }
                 }
               },
