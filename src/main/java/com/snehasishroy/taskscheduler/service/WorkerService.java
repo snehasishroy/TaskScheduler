@@ -65,7 +65,6 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
     // https://www.mail-archive.com/user@curator.apache.org/msg00903.html
     leaderSelector.autoRequeue();
     setup();
-    watchAssignmentPath();
     workerPickerStrategy = new RoundRobinWorker();
   }
 
@@ -82,6 +81,9 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
       name = UUID.randomUUID().toString();
       log.info("Generated a new random name to the worker {}", name);
       asyncCreate(ZKUtils.getWorkerPath(name), CreateMode.EPHEMERAL, registrationRequired);
+      asyncCreate(ZKUtils.getAssignmentPath(name), CreateMode.PERSISTENT, null);
+      watchAssignmentPath();
+      // irrespective of whether this node is a leader or not, we need to watch the assignment path
     }
   }
 
@@ -112,6 +114,10 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
                     }
                     case NODEEXISTS -> {
                       log.warn("Node already exists for path {}", event.getPath());
+                      if (context != null) {
+                        log.info("Setting the registration required field to false");
+                        ((AtomicBoolean) context).set(false);
+                      }
                     }
                     default -> log.error("Unhandled event {}", event);
                   }
@@ -127,20 +133,27 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
 
   // only the leader worker will watch for incoming jobs and changes to available workers
   private void watchJobsAndWorkersPath() {
-    workersCache = CuratorCache.build(curator, ZKUtils.WORKERS_ROOT);
-    jobsCache = CuratorCache.build(curator, ZKUtils.JOBS_ROOT);
-    log.info("Watching workers {}", ZKUtils.getWorkerPath(name));
-    workersCache.start();
-    workersListener = new WorkersListener(assignmentCache, curator);
-    workersCache.listenable().addListener(workersListener);
-
-    log.info("Watching jobs {}", ZKUtils.getJobsPath());
-    jobsCache.start();
-    jobsListener = new JobsListener(curator, workersCache, workerPickerStrategy);
-    jobsCache.listenable().addListener(jobsListener);
+    // Null check prevents starting duplicate cache and listeners in case the leadership is
+    // reacquired
+    if (workersCache == null) {
+      workersCache = CuratorCache.build(curator, ZKUtils.WORKERS_ROOT);
+      workersCache.start();
+      log.info("Watching workers {}", ZKUtils.getWorkerPath(name));
+      workersListener = new WorkersListener(assignmentCache, curator);
+      workersCache.listenable().addListener(workersListener);
+    }
+    if (jobsCache == null) {
+      jobsCache = CuratorCache.build(curator, ZKUtils.JOBS_ROOT);
+      log.info("Watching jobs {}", ZKUtils.getJobsPath());
+      jobsCache.start();
+      jobsListener = new JobsListener(curator, workersCache, workerPickerStrategy);
+      jobsCache.listenable().addListener(jobsListener);
+    }
   }
 
   private void watchAssignmentPath() {
+    // No need to check for null here because once a session is reconnected after a loss
+    // we need to start the assignment listener on the new worker id
     assignmentCache = CuratorCache.build(curator, ZKUtils.getAssignmentPath(name));
     log.info("Watching {}", ZKUtils.getAssignmentPath(name));
     assignmentCache.start();
@@ -197,13 +210,18 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
     if (newState == ConnectionState.RECONNECTED) {
       log.error("Reconnected to ZK, Received {}", newState);
       // no need to start the leadership again as it is auto requeued but worker re-registration is
-      // still required
+      // still required which will create a ZNode in /workers and /assignments path
       registerWorker();
     } else if (newState == ConnectionState.LOST) {
       log.error(
           "Connection lost to ZK, session has been expired, giving up leadership {}", newState);
       registrationRequired.set(true);
-
+      // This is required as the assignment cache listens on the {worker id} which is ephemeral
+      // In case of a lost session, it's guaranteed that the {worker id} would have expired
+      // Once the session is reconnected, we need to set up the assignment listener once again
+      log.info("Removing the watcher set on the assignment listener");
+      assignmentCache.listenable().removeListener(assignmentListener);
+      assignmentCache.close();
       // throwing this specific exception would cause the current thread to interrupt and would
       // cause and InterruptedException
       throw new CancelLeadershipException();

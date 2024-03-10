@@ -79,6 +79,9 @@ public class JobAssigner implements Runnable {
                     case NODEEXISTS -> {
                       log.warn("Assignment already exists for path {}", event.getPath());
                     }
+                    case NONODE -> {
+                      log.error("Trying to create an assignment for a worker which does not exist {}", event);
+                    }
                     default -> log.error("Unhandled event {} ", event);
                   }
                 }
