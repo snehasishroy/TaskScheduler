@@ -13,16 +13,18 @@ import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 
 @Slf4j
-public class JobHandler implements Runnable {
+public class JobAssigner implements Runnable {
 
   private final CuratorFramework curator;
   private final String jobID;
   private final CuratorCache workersCache;
   private final WorkerPickerStrategy workerPickerStrategy;
+  private final byte[] jobData;
   private String workerName;
 
-  public JobHandler(
+  public JobAssigner(
       String jobID,
+      byte[] jobData,
       CuratorFramework curator,
       CuratorCache workersCache,
       WorkerPickerStrategy workerPickerStrategy) {
@@ -30,6 +32,7 @@ public class JobHandler implements Runnable {
     this.curator = curator;
     this.workersCache = workersCache;
     this.workerPickerStrategy = workerPickerStrategy;
+    this.jobData = jobData;
   }
 
   @Override
@@ -45,10 +48,10 @@ public class JobHandler implements Runnable {
         workers.size(),
         chosenWorker,
         workerName);
-    createAssignment();
+    asyncCreateAssignment();
   }
 
-  private void createAssignment() {
+  private void asyncCreateAssignment() {
     try {
       curator
           .create()
@@ -60,20 +63,34 @@ public class JobHandler implements Runnable {
                 public void processResult(CuratorFramework client, CuratorEvent event) {
                   switch (KeeperException.Code.get(event.getResultCode())) {
                     case OK -> {
-                      log.info("Assignment created successfully for {} with {}", jobID, workerName);
+                      log.info(
+                          "Assignment created successfully for JobID {} with WorkerID {}",
+                          jobID,
+                          workerName);
+                      log.info(
+                          "Performing async deletion of {}", ZKUtils.getJobsPath() + "/" + jobID);
+                      asyncDelete(ZKUtils.getJobsPath() + "/" + jobID);
                     }
                     case CONNECTIONLOSS -> {
-                      log.info(
+                      log.error(
                           "Lost connection to ZK while creating {}, retrying", event.getPath());
-                      createAssignment();
+                      asyncCreateAssignment();
                     }
                     case NODEEXISTS -> {
-                      log.info("Assignment already exists for path {}", event.getPath());
+                      log.warn("Assignment already exists for path {}", event.getPath());
                     }
                   }
                 }
               })
-          .forPath(ZKUtils.ASSIGNMENT_ROOT + "/" + workerName + "/" + jobID);
+          .forPath(ZKUtils.ASSIGNMENT_ROOT + "/" + workerName + "/" + jobID, jobData);
+      // Storing the job data along with the assignment, so that the respective worker need not
+      // perform an additional call to get the job details.
+      // This also simplifies the design - because we can delete the /jobs/{jobID} path once the
+      // assignment  is completed - indicating that if an entry is present under /jobs, it's
+      // assignment is not yet done.
+      // This makes the recovery/reconciliation process much easier. Once a leader is elected, it
+      // has to only perform liveliness check for the existing assignments.
+      // TODO: Use MultiOp to perform assignment and deletion atomically
     } catch (Exception e) {
       log.error("Error while creating assignment for {} with {}", jobID, workerName, e);
       throw new RuntimeException(e);
@@ -81,7 +98,7 @@ public class JobHandler implements Runnable {
   }
 
   private void asyncDelete(String path) {
-    // create the ZNode, no need to set any data with this ZNode
+    // delete the provided ZNode
     try {
       curator
           .delete()

@@ -49,6 +49,10 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
   private CuratorCacheListener jobsListener;
   private CuratorCacheListener assignmentListener;
 
+  /**
+   * TODO: Need to implement a daemon service that periodically checks for stale jobs with no status
+   * updates
+   */
   public WorkerService(CuratorFramework curator, String path) {
     this.curator = curator;
     leaderSelector = new LeaderSelector(curator, path, this);
@@ -65,14 +69,11 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
     workerPickerStrategy = new RoundRobinWorker();
   }
 
-  // TODO: Handle Reconnected State change, when the workers lose connection to the server, server
-  // will delete the ephemeral nodes,
-  // client needs to handle this and recreate those nodes
-
   private void setup() {
     registerWorker();
     asyncCreate(ZKUtils.getJobsPath(), CreateMode.PERSISTENT, null);
     asyncCreate(ZKUtils.getAssignmentPath(name), CreateMode.PERSISTENT, null);
+    asyncCreate(ZKUtils.STATUS_ROOT, CreateMode.PERSISTENT, null);
   }
 
   private void registerWorker() {
@@ -105,12 +106,12 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
                       }
                     }
                     case CONNECTIONLOSS -> {
-                      log.info(
+                      log.error(
                           "Lost connection to ZK while creating {}, retrying", event.getPath());
                       asyncCreate(event.getPath(), mode, context);
                     }
                     case NODEEXISTS -> {
-                      log.info("Node already exists for path {}", event.getPath());
+                      log.warn("Node already exists for path {}", event.getPath());
                     }
                   }
                 }
@@ -129,7 +130,7 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
     jobsCache = CuratorCache.build(curator, ZKUtils.JOBS_ROOT);
     log.info("Watching workers {}", ZKUtils.getWorkerPath(name));
     workersCache.start();
-    workersListener = new WorkersListener();
+    workersListener = new WorkersListener(assignmentCache, curator);
     workersCache.listenable().addListener(workersListener);
 
     log.info("Watching jobs {}", ZKUtils.getJobsPath());
@@ -171,7 +172,7 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
     // we are now the leader. This method should not return until we want to relinquish leadership,
     // which will only happen, if someone has signalled us to stop
     log.info("{} is now the leader", name);
-    // only the leader should setup watches
+    // only the leader should watch the jobs and workers path
     watchJobsAndWorkersPath();
     lock.lock();
     try {
@@ -193,15 +194,17 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
   @Override
   public void stateChanged(CuratorFramework client, ConnectionState newState) {
     if (newState == ConnectionState.RECONNECTED) {
-      // no need to recreate the worker path because persistent node will take care of it
-      // if persistent node is not used, then it becomes tricky to recreate the node
       log.error("Reconnected to ZK, Received {}", newState);
-      // no need to start the leadership again as it is auto requeued
+      // no need to start the leadership again as it is auto requeued but worker re-registration is
+      // still required
       registerWorker();
     } else if (newState == ConnectionState.LOST) {
       log.error(
           "Connection lost to ZK, session has been expired, giving up leadership {}", newState);
       registrationRequired.set(true);
+
+      // throwing this specific exception would cause the current thread to interrupt and would
+      // cause and InterruptedException
       throw new CancelLeadershipException();
     } else if (newState == ConnectionState.SUSPENDED) {
       log.error("Connection has been suspended to ZK, giving up leadership {}", newState);
@@ -224,8 +227,7 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
       }
     } else {
       // this is required to remove this node from the leader election set, otherwise it will get
-      // requeued as still this
-      // node is part of the candidate set
+      // requeued as still this node is part of the candidate set
       leaderSelector.close();
     }
   }
