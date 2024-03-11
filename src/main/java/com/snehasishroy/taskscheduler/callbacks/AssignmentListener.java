@@ -35,7 +35,6 @@ public class AssignmentListener implements CuratorCacheListener {
       String jobId = data.getPath().substring(data.getPath().lastIndexOf('/') + 1);
       log.info("Assignment found for job id {}", jobId);
 
-      log.info("Fetching job details for job id {}", jobId);
       try {
         byte[] bytes = data.getData();
         ObjectInputStream objectInputStream =
@@ -58,7 +57,7 @@ public class AssignmentListener implements CuratorCacheListener {
   }
 
   private void asyncCreate(String jobId, String assignmentPath) {
-    log.info("Future is being chained");
+    log.info("JobID {} has been executed, moving on to update its status", jobId);
     // create the ZNode, no need to set any data with this znode
     try {
       curator

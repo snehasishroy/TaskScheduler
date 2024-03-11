@@ -32,6 +32,7 @@ public class WorkersListener implements CuratorCacheListener {
       // notice we have to check oldData because data will be null
       log.info("Lost worker {}", oldData.getPath());
       String lostWorkerID = oldData.getPath().substring(oldData.getPath().lastIndexOf('/') + 1);
+      // map of job ids -> job data, which was assigned to the lost worker
       Map<String, byte[]> assignableJobIds = new HashMap<>();
       assignmentCache.stream()
           .forEach(

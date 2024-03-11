@@ -37,6 +37,8 @@ public class JobAssigner implements Runnable {
 
   @Override
   public void run() {
+    // from the list of workers, pick a worker based on the provided strategy and assign the
+    // incoming job to that worker
     List<ChildData> workers =
         workersCache.stream()
             .filter(childData -> (childData.getPath().length() > ZKUtils.WORKERS_ROOT.length()))
@@ -80,7 +82,9 @@ public class JobAssigner implements Runnable {
                       log.warn("Assignment already exists for path {}", event.getPath());
                     }
                     case NONODE -> {
-                      log.error("Trying to create an assignment for a worker which does not exist {}", event);
+                      log.error(
+                          "Trying to create an assignment for a worker which does not exist {}",
+                          event);
                     }
                     default -> log.error("Unhandled event {} ", event);
                   }
