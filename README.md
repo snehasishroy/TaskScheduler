@@ -3,7 +3,7 @@
 The goal of this project is to provide a hands-on guide on building a scalable, distributed, fault-tolerant, task
 scheduler platform using Zookeeper in Java.
 
-### Starting Zookeeper Server
+## Starting Zookeeper Server
 
 This service utilizes TTL Nodes which requires Zookeeper Server >= 3.5.4.
 
@@ -31,13 +31,13 @@ Starting the ZK Server
 sudo ./zkServer.sh start-foreground
 ```
 
-### Tools for Zookeeper Visualization
+## Tools for Zookeeper Visualization
 
 https://github.com/elkozmon/zoonavigator
 
   <img alt="img.png" height="400" src="docs/zoonavigator.png" width="500"/>
 
-### Running application
+## Running application
 
 ```
 Main class: com.snehasishroy.taskscheduler.App
@@ -49,11 +49,13 @@ application.
 
 <img alt="img.png" height="400" src="docs/run.png"/>
 
-### Architecture
+## Architecture
 
 <img alt="img.png" height="600" src="docs/architecture.png"/>
 
-### Deep dive
+## Low level System Design
+
+https://snehasishroy.com/build-a-distributed-task-scheduler-using-zookeeper
 
 ### What do we want?
 
@@ -89,10 +91,8 @@ open-source projects like Kafka and HBase as the central coordination service.
 
 We will use CuratorFramework in our project as it provides high-level API's for interacting with Zookeeper.
 
-<div data-node-type="callout">
-<div data-node-type="callout-emoji">💡</div>
-<div data-node-type="callout-text">This blog won't deep dive into the internals of Zookeeper. Readers are expected to know the basics of Zookeeper before proceeding to the implementation part.</div>
-</div>
+> This blog won't deep dive into the internals of Zookeeper. Readers are expected to know the basics of Zookeeper before
+> proceeding to the implementation part.
 
 ### Implementation Details
 
@@ -124,10 +124,9 @@ The above code, allows clients to submit a sample runnable task that computes th
 this provides an easy way for input via Swagger. But the design is extensible - the client can submit any instance of
 the `Runnable` as a Job.
 
-<div data-node-type="callout">
-<div data-node-type="callout-emoji">💡</div>
-<div data-node-type="callout-text">Instead of providing a <code>Runnable</code>, we could have designed our service to work with <code>Dockerfile</code> - leading to a generic task execution system! but we wanted to focus only on Zookeeper in this article.</div>
-</div>
+> Instead of providing a <code>Runnable</code>, we could have designed our service to work with <code>
+> Dockerfile</code> - leading to a generic task execution system! but we wanted to focus only on Zookeeper in this
+> article.
 
 Now let's look at the `ClientService`
 
@@ -175,10 +174,9 @@ Why are we creating paths? So that we can set up *watches* on it. Watches allow 
 the watched path. Zookeeper will invoke the `JobsListener` whenever a new node is *created or destroyed* under
 the `/jobs` path.
 
-<div data-node-type="callout">
-<div data-node-type="callout-emoji">💡</div>
-<div data-node-type="callout-text">What would happen if the client is disconnected from the Zookeeper when a new job is registered? In such cases, the watch won't be triggered and the client won't be notified. The Curator will automatically attempt to recreate the watches upon reconnection.</div>
-</div>
+> What would happen if the client is disconnected from the Zookeeper when a new job is registered? In such cases, the
+> watch won't be triggered and the client won't be notified. The Curator will automatically attempt to recreate the
+> watches upon reconnection.
 
 ```java
 public class JobsListener implements CuratorCacheListener {
@@ -215,10 +213,10 @@ public class JobsListener implements CuratorCacheListener {
 When a new job is found, we hand over the Job ID to a different thread because we don't want to block the watcher
 thread.
 
-<div data-node-type="callout">
-<div data-node-type="callout-emoji">💡</div>
-<div data-node-type="callout-text">All ZooKeeper watchers are serialized and processed by a single thread. Thus, no other watchers can be processed while your watcher is running. Hence it's vital not to block the watcher thread. <a target="_blank" rel="noopener noreferrer nofollow" href="https://cwiki.apache.org/confluence/display/CURATOR/TN1" style="pointer-events: none">https://cwiki.apache.org/confluence/display/CURATOR/TN1</a></div>
-</div>
+> All ZooKeeper watchers are serialized and processed by a single thread. Thus, no other watchers can be processed while
+> your watcher is running. Hence it's vital not to block the watcher
+>
+thread. <a target="_blank" rel="noopener noreferrer nofollow" href="https://cwiki.apache.org/confluence/display/CURATOR/TN1" style="pointer-events: none">https://cwiki.apache.org/confluence/display/CURATOR/TN1</a>
 
 We are setting up the watcher using `CuratorCache` - which will be explained later on.
 
@@ -231,10 +229,11 @@ choose a worker randomly or in a round-robin manner. Once a worker is chosen, we
 JobID and a Worker ID - we do so by creating a Persistent ZNode on the path `/assignments/{worker-id}/{job-id}` . Once
 the assignment is created, we *delete* the `/jobs/{job-id}` path.
 
-<div data-node-type="callout">
-<div data-node-type="callout-emoji">💡</div>
-<div data-node-type="callout-text">Deletion of job details of the assigned job eases the recoverability. If a leader dies and a new leader is elected, it does not have to look at all the jobs present under <code>/jobs/</code> and figure out which one is left unassigned. Any jobs present under<code>/jobs/</code> are <em>guaranteed</em> to be unassigned - assuming that the assignment and deletion have happened <em>atomically</em>.</div>
-</div>
+> Deletion of job details of the assigned job eases the recoverability. If a leader dies and a new leader is elected, it
+> does not have to look at all the jobs present under <code>/jobs/</code> and figure out which one is left unassigned.
+> Any
+> jobs present under<code>/jobs/</code> are <em>guaranteed</em> to be unassigned - assuming that the assignment and
+> deletion have happened <em>atomically</em>.
 
 ```java
 public class JobAssigner implements Runnable {
@@ -360,10 +359,9 @@ public class JobAssigner implements Runnable {
 }
 ```
 
-<div data-node-type="callout">
-<div data-node-type="callout-emoji">💡</div>
-<div data-node-type="callout-text">We are using asynchronous operations to create a ZNode to increase throughput. Being asynchronous, we don't know whether our operation actually succeeded or not, hence we have to deal with failure scenarios i.e. <code>ConnectionLoss</code> and whether the Node already exists.</div>
-</div>
+> We are using asynchronous operations to create a ZNode to increase throughput. Being asynchronous, we don't know
+> whether our operation actually succeeded or not, hence we have to deal with failure scenarios i.e. <code>
+> ConnectionLoss</code> and whether the Node already exists.
 
 ### WorkerPickerStrategy
 
@@ -405,10 +403,11 @@ public class RoundRobinWorker implements WorkerPickerStrategy {
 }
 ```
 
-<div data-node-type="callout">
-<div data-node-type="callout-emoji">💡</div>
-<div data-node-type="callout-text">Optimistic locking is a very powerful construct and can be found in various places e.g. ElasticSearch natively provides compare and swap operations while updating documents. Zookeeper also maintains a version number with each ZNode - which can be used to perform a conditional update. <a target="_blank" rel="noopener noreferrer nofollow" href="https://www.elastic.co/guide/en/elasticsearch/reference/current/optimistic-concurrency-control.html" style="pointer-events: none">https://www.elastic.co/guide/en/elasticsearch/reference/current/optimistic-concurrency-control.html</a><a target="_blank" rel="noopener noreferrer nofollow" href="https://zookeeper.apache.org/doc/current/zookeeperProgrammers.html" style="pointer-events: none">https://zookeeper.apache.org/doc/current/zookeeperProgrammers.html</a></div>
-</div>
+> Optimistic locking is a very powerful construct and can be found in various places e.g. ElasticSearch natively
+> provides compare and swap operations while updating documents. Zookeeper also maintains a version number with each
+> ZNode - which can be used to perform a conditional
+>
+update. <a target="_blank" rel="noopener noreferrer nofollow" href="https://www.elastic.co/guide/en/elasticsearch/reference/current/optimistic-concurrency-control.html" style="pointer-events: none">https://www.elastic.co/guide/en/elasticsearch/reference/current/optimistic-concurrency-control.html</a><a target="_blank" rel="noopener noreferrer nofollow" href="https://zookeeper.apache.org/doc/current/zookeeperProgrammers.html" style="pointer-events: none">https://zookeeper.apache.org/doc/current/zookeeperProgrammers.html</a>
 
 ---
 
@@ -424,10 +423,10 @@ Once the runnable has been executed, we chain the future by updating the status 
 reflected by *asynchronously* creating an entry in `/status/{job-id}` . Once the entry is created, we perform the last
 operation in this orchestra - deletion of the assignment mapping.
 
-<div data-node-type="callout">
-<div data-node-type="callout-emoji">💡</div>
-<div data-node-type="callout-text">We have deliberately chosen the deletion of the assignment mapping as the last operation. In case, a worker dies during task execution, the leader can perform failure recovery and assign all the tasks that the dead worker was assigned, to a new worker instance.</div>
-</div>
+
+> We have deliberately chosen the deletion of the assignment mapping as the last operation. In case, a worker dies
+> during task execution, the leader can perform failure recovery and assign all the tasks that the dead worker was
+> assigned, to a new worker instance.
 
 ```java
 public class AssignmentListener implements CuratorCacheListener {
@@ -769,10 +768,11 @@ public class WorkerService implements LeaderSelectorListener, Closeable {
     }
 ```
 
-<div data-node-type="callout">
-<div data-node-type="callout-emoji">💡</div>
-<div data-node-type="callout-text">It's critical for the <code>LeaderSelector</code> instances to pay attention to any connection state changes. If an instance becomes the leader, it should respond to notification of being SUSPENDED or LOST Zookeeper session. If the SUSPENDED state is reported, the instance must assume it might no longer be the leader until it receives a RECONNECTED state. If the LOST state is reported, the instance is no longer the leader and its <code>takeLeadership</code> method should exit.</div>
-</div>
+> It's critical for the <code>LeaderSelector</code> instances to pay attention to any connection state changes. If an
+> instance becomes the leader, it should respond to notification of being SUSPENDED or LOST Zookeeper session. If the
+> SUSPENDED state is reported, the instance must assume it might no longer be the leader until it receives a RECONNECTED
+> state. If the LOST state is reported, the instance is no longer the leader and its <code>takeLeadership</code> method
+> should exit.
 
 When we detect that our instance has lost its connection from Zookeeper, we remove any watches that have been set up and
 throw a `CancelLeadershipException`. And then we wait until we are reconnected to the Zookeeper.
@@ -784,8 +784,7 @@ enabled during the leader election, the instance will enqueue itself for a chanc
 
 ### Conclusion
 
-![dog biting Thank You mail paper](https://images.unsplash.com/photo-1554830072-52d78d0d4c18?q=80&w=1000&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D
-align="left")
+<img height="600" src="https://images.unsplash.com/photo-1554830072-52d78d0d4c18?q=80&amp;w=1000&amp;auto=format&amp;fit=crop&amp;ixlib=rb-4.0.3&amp;ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D"/>
 
 If you have read so far, I appreciate your patience. Hope you learnt something new today. Thank you for reading.
 
