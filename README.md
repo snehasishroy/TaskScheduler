@@ -643,129 +643,131 @@ without taking a lock. This is where the Zookeeper comes in and acts as the trus
 
 ```java
 public class WorkerService implements LeaderSelectorListener, Closeable {
-    public WorkerService(CuratorFramework curator, String path) {
-        this.curator = curator;
-        leaderSelector = new LeaderSelector(curator, path, this);
-        // the selection for this instance doesn't start until the leader selector is started
-        // leader selection is done in the background so this call to leaderSelector.start() returns
-        // immediately
-        leaderSelector.start();
-        // this is important as it automatically handles failure scenarios i.e. starts leadership after
-        // the reconnected state
-        // https://www.mail-archive.com/user@curator.apache.org/msg00903.html
-        leaderSelector.autoRequeue();
-        setup();
-        workerPickerStrategy = new RoundRobinWorker();
-    }
+  public WorkerService(CuratorFramework curator, String path) {
+    this.curator = curator;
+    leaderSelector = new LeaderSelector(curator, path, this);
+    // the selection for this instance doesn't start until the leader selector is started
+    // leader selection is done in the background so this call to leaderSelector.start() returns
+    // immediately
+    leaderSelector.start();
+    // this is important as it automatically handles failure scenarios i.e. starts leadership after
+    // the reconnected state
+    // https://www.mail-archive.com/user@curator.apache.org/msg00903.html
+    leaderSelector.autoRequeue();
+    setup();
+    workerPickerStrategy = new RoundRobinWorker();
+  }
 
-    private void setup() {
-        registerWorker();
-        asyncCreate(ZKUtils.getJobsPath(), CreateMode.PERSISTENT, null);
-        asyncCreate(ZKUtils.getAssignmentPath(name), CreateMode.PERSISTENT, null);
-        asyncCreate(ZKUtils.STATUS_ROOT, CreateMode.PERSISTENT, null);
-    }
+  private void setup() {
+    registerWorker();
+    asyncCreate(ZKUtils.getJobsPath(), CreateMode.PERSISTENT, null);
+    asyncCreate(ZKUtils.getAssignmentPath(name), CreateMode.PERSISTENT, null);
+    asyncCreate(ZKUtils.STATUS_ROOT, CreateMode.PERSISTENT, null);
+  }
 
-    private void registerWorker() {
-        if (registrationRequired.get()) {
-            log.info("Attempting worker registration");
-            name = UUID.randomUUID().toString();
-            log.info("Generated a new random name to the worker {}", name);
-            asyncCreate(ZKUtils.getWorkerPath(name), CreateMode.EPHEMERAL, registrationRequired);
-            asyncCreate(ZKUtils.getAssignmentPath(name), CreateMode.PERSISTENT, null);
-            watchAssignmentPath();
-            // irrespective of whether this node is a leader or not, we need to watch the assignment path
-        }
+  private void registerWorker() {
+    if (registrationRequired.get()) {
+      log.info("Attempting worker registration");
+      name = UUID.randomUUID().toString();
+      log.info("Generated a new random name to the worker {}", name);
+      asyncCreate(ZKUtils.getWorkerPath(name), CreateMode.EPHEMERAL, registrationRequired);
+      asyncCreate(ZKUtils.getAssignmentPath(name), CreateMode.PERSISTENT, null);
+      watchAssignmentPath();
+      // irrespective of whether this node is a leader or not, we need to watch the assignment path
     }
+  }
 
-    // only the leader worker will watch for incoming jobs and changes to available workers
-    private void watchJobsAndWorkersPath() {
-        // in case leadership is reacquired, repeat the setup of the watches
-        workersCache = CuratorCache.build(curator, ZKUtils.WORKERS_ROOT);
-        workersCache.start();
-        log.info("Watching workers root path {}", ZKUtils.WORKERS_ROOT);
-        workersListener = new WorkersListener(assignmentCache, curator);
-        workersCache.listenable().addListener(workersListener);
+  // only the leader worker will watch for incoming jobs and changes to available workers
+  private void watchJobsAndWorkersPath() {
+    // in case leadership is reacquired, repeat the setup of the watches
+    workersCache = CuratorCache.build(curator, ZKUtils.WORKERS_ROOT);
+    workersCache.start();
+    log.info("Watching workers root path {}", ZKUtils.WORKERS_ROOT);
+    workersListener = new WorkersListener(assignmentCache, curator);
+    workersCache.listenable().addListener(workersListener);
 
-        jobsCache = CuratorCache.build(curator, ZKUtils.JOBS_ROOT);
-        log.info("Watching jobs root path {}", ZKUtils.getJobsPath());
-        jobsCache.start();
-        jobsListener = new JobsListener(curator, workersCache, workerPickerStrategy);
-        jobsCache.listenable().addListener(jobsListener);
+    jobsCache = CuratorCache.build(curator, ZKUtils.JOBS_ROOT);
+    log.info("Watching jobs root path {}", ZKUtils.getJobsPath());
+    jobsCache.start();
+    jobsListener = new JobsListener(curator, workersCache, workerPickerStrategy);
+    jobsCache.listenable().addListener(jobsListener);
+  }
+
+  private void watchAssignmentPath() {
+    // No need to check for null here because once a session is reconnected after a loss
+    // we need to start the assignment listener on the new worker id
+    assignmentCache = CuratorCache.build(curator, ZKUtils.getAssignmentPath(name));
+    log.info("Watching {}", ZKUtils.getAssignmentPath(name));
+    assignmentCache.start();
+    assignmentListener = new AssignmentListener(curator);
+    assignmentCache.listenable().addListener(assignmentListener);
+  }
+
+  @Override
+  public void takeLeadership(CuratorFramework client) {
+    // we are now the leader. This method should not return until we want to relinquish leadership,
+    // which will only happen, if someone has signalled us to stop
+    log.info("{} is now the leader", name);
+    // only the leader should watch the jobs and workers path
+    watchJobsAndWorkersPath();
+    lock.lock();
+    try {
+      // sleep until signalled to stop
+      while (!shouldStop.get()) {
+        condition.await();
+      }
+      if (shouldStop.get()) {
+        log.warn("{} is signalled to stop!", name);
+        leaderSelector.close();
+      }
+    } catch (InterruptedException e) { // this is propagated from cancel leadership election
+      log.error("Thread is interrupted, need to exit the leadership", e);
+    } finally {
+      // finally is called before the method return
+      lock.unlock();
     }
+  }
 
-    private void watchAssignmentPath() {
-        // No need to check for null here because once a session is reconnected after a loss
-        // we need to start the assignment listener on the new worker id
-        assignmentCache = CuratorCache.build(curator, ZKUtils.getAssignmentPath(name));
-        log.info("Watching {}", ZKUtils.getAssignmentPath(name));
-        assignmentCache.start();
-        assignmentListener = new AssignmentListener(curator);
-        assignmentCache.listenable().addListener(assignmentListener);
+  @Override
+  public void stateChanged(CuratorFramework client, ConnectionState newState) {
+    if (newState == ConnectionState.RECONNECTED) {
+      log.error("Reconnected to ZK, Received {}", newState);
+      // no need to start the leadership again as it is auto requeued but worker re-registration is
+      // still required which will create a ZNode in /workers and /assignments path
+      registerWorker();
+    } else if (newState == ConnectionState.LOST) {
+      log.error("Connection suspended/lost to ZK, giving up leadership {}", newState);
+      registrationRequired.set(true);
+      // This is required as the assignment cache listens on the {worker id} which is ephemeral
+      // In case of a lost session, it's guaranteed that the {worker id} would have expired
+      // Once the session is reconnected, we need to set up the assignment listener again on a new
+      // worker id
+      // TODO: Figure out a way to simulate the disconnection from zookeeper only by one instance
+      log.info("Removing the watcher set on the assignment listener");
+      assignmentCache.listenable().removeListener(assignmentListener);
+      assignmentCache.close();
+      if (workersCache != null) {
+        log.info("Removing the watcher set on the workers listener");
+        workersCache.listenable().removeListener(workersListener);
+        workersCache.close();
+      }
+      if (jobsCache != null) {
+        log.info("Removing the watcher set on the jobs listener");
+        jobsCache.listenable().removeListener(jobsListener);
+        jobsCache.close();
+      }
+      // throwing this specific exception would cause the current thread to interrupt and would
+      // cause and InterruptedException
+      throw new CancelLeadershipException();
+    } else if (newState == ConnectionState.SUSPENDED) {
+      // https://stackoverflow.com/questions/41042798/how-to-handle-apache-curator-distributed-lock-loss-of-connection
+      log.error("Connection has been suspended to ZK {}", newState);
+      // TODO: After increasing the time out, verify whether no other instance gets the lock before
+      // the connection is marked as LOST
     }
+  }
+}
 
-    @Override
-    public void takeLeadership(CuratorFramework client) {
-        // we are now the leader. This method should not return until we want to relinquish leadership,
-        // which will only happen, if someone has signalled us to stop
-        log.info("{} is now the leader", name);
-        // only the leader should watch the jobs and workers path
-        watchJobsAndWorkersPath();
-        lock.lock();
-        try {
-            // sleep until signalled to stop
-            while (!shouldStop.get()) {
-                condition.await();
-            }
-            if (shouldStop.get()) {
-                log.warn("{} is signalled to stop!", name);
-                leaderSelector.close();
-            }
-        } catch (InterruptedException e) { // this is propagated from cancel leadership election
-            log.error("Thread is interrupted, need to exit the leadership", e);
-        } finally {
-            // finally is called before the method return
-            lock.unlock();
-        }
-    }
-
-    @Override
-    public void stateChanged(CuratorFramework client, ConnectionState newState) {
-        if (newState == ConnectionState.RECONNECTED) {
-            log.error("Reconnected to ZK, Received {}", newState);
-            // no need to start the leadership again as it is auto requeued but worker re-registration is
-            // still required which will create a ZNode in /workers and /assignments path
-            registerWorker();
-        } else if (newState == ConnectionState.LOST) {
-            log.error("Connection suspended/lost to ZK, giving up leadership {}", newState);
-            registrationRequired.set(true);
-            // This is required as the assignment cache listens on the {worker id} which is ephemeral
-            // In case of a lost session, it's guaranteed that the {worker id} would have expired
-            // Once the session is reconnected, we need to set up the assignment listener again on a new
-            // worker id
-            // TODO: Figure out a way to simulate the disconnection from zookeeper only by one instance
-            log.info("Removing the watcher set on the assignment listener");
-            assignmentCache.listenable().removeListener(assignmentListener);
-            assignmentCache.close();
-            if (workersCache != null) {
-                log.info("Removing the watcher set on the workers listener");
-                workersCache.listenable().removeListener(workersListener);
-                workersCache.close();
-            }
-            if (jobsCache != null) {
-                log.info("Removing the watcher set on the jobs listener");
-                jobsCache.listenable().removeListener(jobsListener);
-                jobsCache.close();
-            }
-            // throwing this specific exception would cause the current thread to interrupt and would
-            // cause and InterruptedException
-            throw new CancelLeadershipException();
-        } else if (newState == ConnectionState.SUSPENDED) {
-            // https://stackoverflow.com/questions/41042798/how-to-handle-apache-curator-distributed-lock-loss-of-connection
-            log.error("Connection has been suspended to ZK {}", newState);
-            // TODO: After increasing the time out, verify whether no other instance gets the lock before
-            // the connection is marked as LOST
-        }
-    }
 ```
 
 > It's critical for the <code>LeaderSelector</code> instances to pay attention to any connection state changes. If an
