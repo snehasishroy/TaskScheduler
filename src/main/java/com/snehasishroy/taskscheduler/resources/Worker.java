@@ -2,6 +2,7 @@ package com.snehasishroy.taskscheduler.resources;
 
 import com.google.inject.Inject;
 import com.snehasishroy.taskscheduler.service.WorkerService;
+import com.snehasishroy.taskscheduler.util.ZKUtils;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
@@ -13,7 +14,6 @@ import org.apache.curator.framework.CuratorFramework;
 // resources
 @Path("/v1/workers")
 public class Worker {
-  private static final String PATH = "/leader";
   private final CuratorFramework curator;
   WorkerService worker;
 
@@ -24,7 +24,7 @@ public class Worker {
   }
 
   public void initWorker() {
-    worker = new WorkerService(curator, PATH);
+    worker = new WorkerService(curator, ZKUtils.LEADER_ROOT);
   }
 
   @DELETE

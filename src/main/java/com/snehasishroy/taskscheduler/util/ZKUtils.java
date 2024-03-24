@@ -10,6 +10,7 @@ public class ZKUtils {
   public static final String JOBS_ROOT = "/jobs";
   public static final String ASSIGNMENT_ROOT = "/assignments";
   public static final String STATUS_ROOT = "/status";
+  public static final String LEADER_ROOT = "/leader";
   public static final long STATUS_TTL_MILLIS = TimeUnit.MINUTES.toMillis(10);
 
   public static String getWorkerPath(String name) {
