@@ -3,6 +3,18 @@
 The goal of this project is to provide a hands-on guide on building a scalable, distributed, fault-tolerant, task
 scheduler platform using Zookeeper in Java.
 
+## Maven Dependency
+
+Use the following maven dependency
+
+```
+<dependency>
+    <groupId>com.snehasishroy</groupId>
+    <artifactId>TaskScheduler</artifactId>
+    <version>1.0</version>
+</dependency>
+```
+
 ## Starting Zookeeper Server
 
 This service utilizes TTL Nodes which requires Zookeeper Server >= 3.5.4.
